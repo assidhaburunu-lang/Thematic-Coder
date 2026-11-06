@@ -1392,8 +1392,9 @@ function moveTheme(t, dir) {
 }
 
 /* ============ MAP TAB ============ */
-const FAM = '"Inter","Noto Sans Thaana","Faruma","MV Faseyha",sans-serif';
+const FAM = '"TC Faruma File","TC Faruma","Inter","Noto Sans Thaana","MV Faseyha",sans-serif';
 const FAM_SVG = "Inter, 'Noto Sans Thaana', Faruma, 'MV Faseyha', sans-serif";
+const FAM_SVG_TH = "Faruma, 'MV Faseyha', 'Noto Sans Thaana', Inter, sans-serif";
 const NODE = {
   root: { w: 700, size: 17, padX: 20, padY: 12, max: 260 },
   theme: { w: 600, size: 14, padX: 15, padY: 9, max: 210 },
@@ -1541,7 +1542,7 @@ function mapSVGString(L, exportMode) {
   L.nodes.forEach((n, i) => {
     const st = nodeStyle(n); const N = NODE[n.type];
     out.push(`<g class="map-node" data-i="${i}"><rect class="box" x="${n.x.toFixed(1)}" y="${n.y.toFixed(1)}" width="${n.w}" height="${n.h}" rx="${nodeRadius(n)}" fill="${st.fill}" stroke="${st.stroke}" stroke-width="${st.sw}"${n.kind === 'unassigned' ? ' stroke-dasharray="4 3"' : ''}/>`);
-    out.push(`<text font-family="${FAM_SVG}" font-size="${n.size}" font-weight="${N.w}" fill="${st.text}" text-anchor="middle" dominant-baseline="central"${n.rtl ? ' direction="rtl"' : ''}>`);
+    out.push(`<text font-family="${n.rtl ? FAM_SVG_TH : FAM_SVG}" font-size="${n.size}" font-weight="${N.w}" fill="${st.text}" text-anchor="middle" dominant-baseline="central"${n.rtl ? ' direction="rtl"' : ''}>`);
     const tx = textX(n);
     n.lines.forEach((ln, k) => out.push(`<tspan x="${tx.toFixed(1)}" y="${(n.y + N.padY + n.lh * (k + .5)).toFixed(1)}">${esc(ln)}</tspan>`));
     out.push('</text>');
@@ -1607,7 +1608,7 @@ async function renderMap(m) {
   if (!P.themes.length) {
     wrap.append(el('div', { class: 'empty', style: { position: 'absolute', inset: '0', margin: '12vh auto' } }, el('h3', { text: 'No themes yet' }), el('p', { text: 'Create themes on the Themes tab and drag your codes into them — the map is drawn from that structure.' }), el('button', { class: 'btn primary', text: 'Go to Themes', onclick: () => { UI.tab = 'themes'; render(); } })));
   }
-  try { await Promise.race([Promise.all([document.fonts.load(`600 14px "Noto Sans Thaana"`, 'ދިވެހި'), document.fonts.load(`600 14px "Inter"`, 'Aa')]), sleep(2500)]); } catch (e) { }
+  try { await Promise.race([Promise.all([document.fonts.load(`600 14px "Noto Sans Thaana"`, 'ދިވެހި'), document.fonts.load(`600 14px "TC Faruma"`, 'ދިވެހި'), document.fonts.load(`600 14px "Inter"`, 'Aa')]), sleep(2500)]); } catch (e) { }
   if (mapView && mapView.svg === svg) { drawMap(true); setupPanZoom(svg); }
 }
 function drawMap(refit) {
@@ -1929,6 +1930,114 @@ function sampleProject(space) {
   return p;
 }
 
+const DvHost = {
+  canUpload: () => true,
+  uploadHint: () => isOwner() ? 'As owner, this sets the font for everyone using this site' : 'Saved in this browser only',
+  async save(b64) {
+    if (isOwner()) { await API.put('/api/admin/font', { b64 }); return 'for everyone on this site'; }
+    if (!lsSet('tc:font', b64)) throw new Error('browser storage is full'); return 'in this browser';
+  },
+  async load() { return lsGet('tc:font'); }, // the site-wide font loads through CSS (/api/font/faruma)
+};
+/* ============ Dhivehi: Faruma font + phonetic Thaana keyboard ============ */
+const THAANA_RANGE = 'U+0780-07BF, U+060C, U+061B, U+061F, U+FDF2, U+FDFD';
+const Dv = { kb: lsGet('tc:thaanaKb') === '1', file: false, installed: null, source: 'checking' };
+// Standard Dhivehi phonetic layout (as on Windows "Divehi Phonetic")
+const THAANA_KEYS = {
+  h: 'ހ', S: 'ށ', n: 'ނ', r: 'ރ', b: 'ބ', L: 'ޅ', k: 'ކ', w: 'އ', v: 'ވ', m: 'މ', f: 'ފ', d: 'ދ', t: 'ތ', l: 'ލ', g: 'ގ', N: 'ޏ', s: 'ސ', D: 'ޑ', z: 'ޒ', T: 'ޓ', y: 'ޔ', p: 'ޕ', j: 'ޖ', c: 'ޗ',
+  X: 'ޘ', H: 'ޙ', K: 'ޚ', J: 'ޛ', R: 'ޜ', C: 'ޝ', B: 'ޞ', M: 'ޟ', Y: 'ޠ', Z: 'ޡ', W: 'ޢ', G: 'ޣ', Q: 'ޤ', V: 'ޥ',
+  a: 'ަ', A: 'ާ', i: 'ި', I: 'ީ', u: 'ު', U: 'ޫ', e: 'ެ', E: 'ޭ', o: 'ޮ', O: 'ޯ', q: 'ް',
+  ',': '،', ';': '؛', '?': '؟',
+};
+function thaanaTarget(t) {
+  if (!t || t.readOnly || t.disabled) return false;
+  if (t instanceof HTMLTextAreaElement) return true;
+  return t instanceof HTMLInputElement && (t.type === 'text' || t.type === 'search') && !t.classList.contains('no-thaana');
+}
+document.addEventListener('keydown', e => {
+  if (!Dv.kb || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  const t = e.target; if (!thaanaTarget(t)) return;
+  const ch = THAANA_KEYS[e.key]; if (!ch) return;
+  e.preventDefault();
+  const s = t.selectionStart, en = t.selectionEnd;
+  t.setRangeText(ch, s, en, 'end');
+  t.dispatchEvent(new Event('input', { bubbles: true }));
+}, true);
+// Ctrl+Shift+Space switches the keyboard on/off from anywhere
+document.addEventListener('keydown', e => { if (e.ctrlKey && e.shiftKey && e.code === 'Space') { e.preventDefault(); setThaanaKb(!Dv.kb); } });
+function setThaanaKb(on) {
+  Dv.kb = on; lsSet('tc:thaanaKb', on ? '1' : '0'); renderDvButton();
+  toast(on ? 'Dhivehi keyboard on — type phonetically (Ctrl+Shift+Space to switch off)' : 'Dhivehi keyboard off');
+}
+// Is a font that covers Thaana actually being used? Compare against a fallback.
+function fontWorks(family) {
+  try {
+    const c = document.createElement('canvas').getContext('2d'); const sample = 'ދިވެހިބަސް ތާނަ';
+    c.font = '32px monospace'; const base = c.measureText(sample).width;
+    c.font = `32px "${family}", monospace`; return Math.abs(c.measureText(sample).width - base) > 0.5;
+  } catch (e) { return false; }
+}
+async function detectFaruma() {
+  try { await Promise.race([document.fonts.load('16px "TC Faruma"', 'ދ'), sleep(2500)]); } catch (e) { }
+  Dv.installed = fontWorks('TC Faruma');
+  Dv.source = Dv.file ? 'file' : Dv.installed ? 'installed' : 'fallback';
+  document.documentElement.classList.toggle('faruma', Dv.source !== 'fallback');
+  renderDvButton();
+}
+async function useFarumaBuffer(buf) {
+  try {
+    const face = new FontFace('TC Faruma File', buf, { unicodeRange: THAANA_RANGE, display: 'swap' });
+    await face.load(); document.fonts.add(face);
+    Dv.file = true; Dv.source = 'file'; document.documentElement.classList.add('faruma');
+    renderDvButton(); fontChanged();
+    return true;
+  } catch (e) { return false; }
+}
+function fontChanged() {
+  if (typeof mapView !== 'undefined' && mapView && mapView.svg && document.contains(mapView.svg)) drawMap(false);
+}
+const b64FromBuf = buf => { let s = ''; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+const bufFromB64 = b64 => { const s = atob(b64); const b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b.buffer; };
+function renderDvButton() {
+  const b = $('#dvBtn'); if (!b) return;
+  b.classList.toggle('on', Dv.kb);
+  b.title = 'Dhivehi: keyboard ' + (Dv.kb ? 'ON' : 'off') + ' · font: ' + ({ file: 'Faruma (uploaded)', installed: 'Faruma', fallback: 'Noto Sans Thaana (Faruma not found)', checking: '…' }[Dv.source]);
+}
+function dvMenu(anchor) {
+  const old = $('.menu.dv'); if (old) { old.remove(); return; }
+  const kbInput = el('input', { type: 'checkbox' }); kbInput.checked = Dv.kb;
+  kbInput.addEventListener('change', () => setThaanaKb(kbInput.checked));
+  const fileIn = el('input', { type: 'file', accept: '.ttf,.otf,.woff,.woff2', class: 'hidden' });
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files[0]; fileIn.value = ''; if (!f) return;
+    if (f.size > 1500000) { toast('That font file is too large (max 1.5 MB).', 'err'); return; }
+    const buf = await f.arrayBuffer();
+    if (!(await useFarumaBuffer(buf.slice(0)))) { toast('That file isn’t a font this browser can read.', 'err'); return; }
+    try { const where = await DvHost.save(b64FromBuf(buf)); toast('Faruma is now used ' + where + '.'); }
+    catch (e) { toast('Faruma is used now, but couldn’t be saved: ' + (e.message || e), 'err'); }
+    menu.remove();
+  });
+  const status = { file: 'Using Faruma (uploaded file).', installed: 'Using Faruma.', fallback: 'Faruma isn’t installed on this computer, so Dhivehi shows in Noto Sans Thaana.', checking: 'Checking…' }[Dv.source];
+  const keys = [['h', 'ހ'], ['S', 'ށ'], ['n', 'ނ'], ['r', 'ރ'], ['b', 'ބ'], ['L', 'ޅ'], ['k', 'ކ'], ['w', 'އ'], ['v', 'ވ'], ['m', 'މ'], ['f', 'ފ'], ['d', 'ދ'], ['t', 'ތ'], ['l', 'ލ'], ['g', 'ގ'], ['N', 'ޏ'], ['s', 'ސ'], ['D', 'ޑ'], ['z', 'ޒ'], ['T', 'ޓ'], ['y', 'ޔ'], ['p', 'ޕ'], ['j', 'ޖ'], ['c', 'ޗ'],
+    ['a', 'ަ'], ['A', 'ާ'], ['i', 'ި'], ['I', 'ީ'], ['u', 'ު'], ['U', 'ޫ'], ['e', 'ެ'], ['E', 'ޭ'], ['o', 'ޮ'], ['O', 'ޯ'], ['q', 'ް']];
+  const menu = el('div', { class: 'menu dv' },
+    el('div', { class: 'menu-head' }, el('b', { text: 'ދިވެހި  Dhivehi' }), el('small', { text: status })),
+    el('label', { class: 'chk', style: { padding: '8px 10px' } }, kbInput, 'Type in Thaana (phonetic keyboard)'),
+    el('div', { class: 'hint', style: { padding: '0 10px 6px' }, text: 'Works in every text box. Shortcut: Ctrl+Shift+Space.' }),
+    el('div', { class: 'kb-grid' }, keys.map(([k, v]) => el('span', {}, el('b', { text: k }), el('i', { text: v.length === 1 && /[ަ-ް]/.test(v) ? '◌' + v : v })))),
+    DvHost.canUpload() ? el('button', { onclick: () => fileIn.click() }, Dv.file ? 'Replace Faruma font file…' : 'Upload Faruma font file (.ttf)…', el('small', { text: DvHost.uploadHint() })) : null,
+    fileIn);
+  anchor.parentElement.append(menu);
+  setTimeout(() => document.addEventListener('mousedown', function h(ev) { if (!menu.contains(ev.target) && ev.target !== anchor) { menu.remove(); document.removeEventListener('mousedown', h); } }), 0);
+}
+function initDhivehi() {
+  const btn = $('#dvBtn');
+  if (btn) btn.addEventListener('click', e => { e.stopPropagation(); dvMenu(btn); });
+  renderDvButton();
+  detectFaruma();
+  DvHost.load().then(b64 => { if (b64) useFarumaBuffer(bufFromB64(b64)); }).catch(() => { });
+}
+
 /* ============ boot ============ */
 window.addEventListener('resize', () => { if (UI.tab === 'map' && mapView && mapView.L) fitMap(); });
 (async function boot() {
@@ -1946,7 +2055,7 @@ window.addEventListener('resize', () => { if (UI.tab === 'map' && mapView && map
   if (qmsg) { history.replaceState(null, '', '/'); setTimeout(() => toast(qmsg === 'google-linked' ? 'Your Google account is connected. You can now sign in with Google.' : qmsg === 'google-in-use' ? 'That Google account is already used by another person here.' : '', qmsg === 'google-in-use' ? 'err' : undefined), 300); }
   people.set(me.id, { name: me.name });
   $('#adminTab').classList.toggle('hidden', !isOwner());
-  renderUserMenu(); loadPeople(); startLive(); setStatus('');
+  renderUserMenu(); loadPeople(); startLive(); setStatus(''); initDhivehi();
   let list = [];
   try { list = await API.get('/api/projects'); } catch (e) { toast('Couldn’t load projects: ' + e.message, 'err'); }
   const last = lsGet('tc:last');
