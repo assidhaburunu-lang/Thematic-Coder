@@ -163,6 +163,8 @@ const API = {
 };
 const ME = { id: null, name: '', role: 'member', email: null, google: false, hasPassword: true };
 const isOwner = () => ME.role === 'owner';
+const canCreate = () => ME.role === 'owner' || ME.role === 'user';
+const accountLabel = r => r === 'owner' ? 'Owner' : r === 'user' ? 'User' : 'Member';
 const Store = { uid: null };
 const CLIENT_ID = 'k' + uid();
 
@@ -562,9 +564,11 @@ function pasteModal() {
 /* ============ rendering: shell ============ */
 $$('#tabs button').forEach(b => b.addEventListener('click', () => { if (!P && b.dataset.tab !== 'admin') return; UI.tab = b.dataset.tab; closePop(); render(); updatePresence(); }));
 $('#projBtn').addEventListener('click', projectsModal);
+$('#shareBtn').addEventListener('click', () => { if (P) membersModal(P.id, P.name); });
 function render(keepScroll) {
   const scroll = {}; if (keepScroll) ['.seg-page', '.board', '.ov', '#docScroll', '.tbl-wrap'].forEach(q => { const e = $(q); if (e) scroll[q] = [e.scrollTop, e.scrollLeft]; });
   $('#projName').textContent = P ? P.name : 'No project';
+  const sb = $('#shareBtn'); if (sb) sb.classList.toggle('hidden', !(P && canManageRole(UI.role)));
   $('#projName').dir = 'auto';
   $$('#tabs button').forEach(b => { b.classList.toggle('on', b.dataset.tab === UI.tab && (!!P || b.dataset.tab === 'admin')); b.disabled = !P && b.dataset.tab !== 'admin'; });
   const m = $('#main'); m.innerHTML = '';
@@ -582,19 +586,21 @@ function showBanner(html, btn) {
 }
 
 function welcome() {
-  const owner = isOwner();
+  const owner = isOwner(), creator = canCreate();
   return el('div', { class: 'welcome' },
-    el('h1', { text: owner ? 'Code your interviews into themes — together' : 'Welcome, ' + ME.name }),
-    el('p', { text: owner ? 'Create a project, upload Word transcripts in Dhivehi or English, then give your members access. Everyone with access can code at the same time and see each other\u2019s work live.'
-      : 'You haven\u2019t been added to a project yet. When the owner gives you access, your projects will appear here — open Projects at the top, or refresh this page.' }),
+    el('h1', { text: creator ? 'Code your interviews into themes \u2014 together' : 'Welcome, ' + ME.name }),
+    el('p', { text: owner ? 'Create a project, upload Word transcripts in Dhivehi or English, then give people access. Everyone with access can code at the same time and see each other\u2019s work live.'
+      : creator ? 'Start your own project, upload transcripts in Dhivehi or English, and invite collaborators to code with you. You can also be added to other people\u2019s projects.'
+      : 'You haven\u2019t been added to a project yet. When the owner or a project creator gives you access, your projects will appear here \u2014 open Projects at the top, or refresh this page.' }),
     el('div', { class: 'steps' },
       [['Upload', 'Add .docx or .txt transcripts'], ['Code', 'Select text, attach one or more codes'], ['Theme', 'Drag codes into themes and sub-themes'], ['Map', 'Generate a diagram and export it']]
         .map(([b, s], i) => el('div', { class: 'step' }, el('div', { class: 'n', text: i + 1 }), el('b', { text: b }), el('span', { text: s })))),
-    owner ? el('div', { class: 'row' },
+    creator ? el('div', { class: 'row' },
       el('button', { class: 'btn primary', text: 'Start a new project', onclick: () => newProjectFlow() }),
       el('button', { class: 'btn', text: 'Add the sample project', onclick: sampleFlow }),
       el('button', { class: 'btn ghost', text: 'Import a project file (.json)', onclick: () => $('#jsonIn').click() }),
-      el('button', { class: 'btn ghost', text: 'Admin: approve sign-ups', onclick: () => { UI.tab = 'admin'; render(); } }))
+      owner ? el('button', { class: 'btn ghost', text: 'Admin: approve sign-ups', onclick: () => { UI.tab = 'admin'; render(); } }) : null,
+      el('button', { class: 'btn ghost', text: 'My projects', onclick: projectsModal }))
       : el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Check my projects', onclick: projectsModal })));
 }
 
@@ -613,7 +619,7 @@ async function openProject(pid, quiet) {
   } catch (e) { toast('Couldn’t open the project: ' + e.message, 'err'); if (!P) render(); }
 }
 async function openNewProject(p) {
-  if (!isOwner()) { toast('Only the owner can create projects.', 'err'); return; }
+  if (!canCreate()) { toast('Your account can\u2019t create projects. Ask the owner to make you a User.', 'err'); return; }
   try {
     toast('Creating project…');
     const all = serialize(p);
@@ -631,7 +637,7 @@ async function openNewProject(p) {
     await API.post('/api/projects/' + r.id + '/ops', { client: CLIENT_ID, ops: [{ k: 'm', id: null, data: { name: all.name, center: all.center, docOrder } }] });
     UI.tab = 'code';
     await openProject(r.id);
-    toast('Project created. Use Projects → Members to give people access.');
+    toast('Project created. Use “Collaborators” at the top to invite people.');
   } catch (e) { toast('Couldn’t create the project: ' + e.message, 'err'); }
 }
 async function newProjectFlow() {
@@ -639,20 +645,21 @@ async function newProjectFlow() {
   if (n) await openNewProject(newProject(n));
 }
 function sampleFlow() { openNewProject(sampleProject()); }
-const roleLabel = r => r === 'owner' ? 'Owner' : r === 'editor' ? 'Can code' : 'View only';
+const roleLabel = r => r === 'owner' ? 'Owner' : r === 'manager' ? 'Your project' : r === 'editor' ? 'Can code' : 'View only';
+const canManageRole = r => r === 'owner' || r === 'manager';
 async function projectsModal() {
   const list = el('div', {}, el('div', { class: 'hint', text: 'Loading…' }));
   const m = modal({ title: 'Projects', wide: true, body: el('div', {}, list,
     el('div', { class: 'row', style: { margin: '6px 0 10px' } },
-      isOwner() ? el('button', { class: 'btn primary', html: IC.plus + ' New project', onclick: () => { m.close(); newProjectFlow(); } }) : null,
-      isOwner() ? el('button', { class: 'btn', text: 'Import .json', onclick: () => { m.close(); $('#jsonIn').click(); } }) : null,
-      isOwner() ? el('button', { class: 'btn', text: 'Add sample project', onclick: () => { m.close(); sampleFlow(); } }) : null,
+      canCreate() ? el('button', { class: 'btn primary', html: IC.plus + ' New project', onclick: () => { m.close(); newProjectFlow(); } }) : null,
+      canCreate() ? el('button', { class: 'btn', text: 'Import .json', onclick: () => { m.close(); $('#jsonIn').click(); } }) : null,
+      canCreate() ? el('button', { class: 'btn', text: 'Add sample project', onclick: () => { m.close(); sampleFlow(); } }) : null,
       P ? el('button', { class: 'btn', text: 'Export current project', onclick: exportProject }) : null),
-    el('p', { class: 'hint', text: isOwner() ? 'You can see every project. Use “Members” to choose who can view or code each one.' : 'These are the projects the owner has shared with you.' })) });
+    el('p', { class: 'hint', text: isOwner() ? 'You can see every project. Use “Collaborators” to choose who can view or code each one.' : canCreate() ? 'Your own projects and the ones others have shared with you. Use “Collaborators” on your projects to invite people.' : 'These are the projects that have been shared with you.' })) });
   let items = [];
   try { items = await API.get('/api/projects'); } catch (e) { list.innerHTML = ''; list.append(el('div', { class: 'hint', text: 'Couldn’t load projects: ' + e.message })); return; }
   list.innerHTML = '';
-  if (!items.length) { list.append(el('div', { class: 'hint', style: { marginBottom: '10px' }, text: isOwner() ? 'No projects yet.' : 'You haven’t been added to any projects yet. Ask the owner to give you access.' })); return; }
+  if (!items.length) { list.append(el('div', { class: 'hint', style: { marginBottom: '10px' }, text: canCreate() ? 'No projects yet \u2014 start one with “New project”.' : 'You haven\u2019t been added to any projects yet. Ask the owner to give you access.' })); return; }
   const box = el('div', { class: 'proj-list' });
   for (const it of items) {
     const isCur = P && it.id === P.id;
@@ -660,10 +667,10 @@ async function projectsModal() {
     box.append(el('div', { class: 'proj-item' + (isCur ? ' on' : ''), onclick: () => { m.close(); if (!isCur) openProject(it.id); } },
       el('span', { html: IC.doc, style: { width: '16px', color: '#6b7079' } }),
       el('div', { class: 'grow' }, el('div', { text: name, dir: 'auto', style: { fontWeight: 500 } }),
-        el('div', { class: 'meta', text: `${it.nDocs || 0} documents · created ${new Date(it.created).toLocaleDateString()}${isOwner() ? '' : ' · ' + roleLabel(it.role)}` })),
-      isOwner() ? el('button', { class: 'btn small', text: 'Members', onclick: e => { e.stopPropagation(); m.close(); membersModal(it.id, name); } }) : null,
+        el('div', { class: 'meta', text: `${it.nDocs || 0} documents · created ${new Date(it.created).toLocaleDateString()}${isOwner() ? (it.created_by && it.created_by !== ME.id ? ' · by ' + personName(it.created_by) : '') : ' · ' + roleLabel(it.role)}` })),
+      canManageRole(it.role) ? el('button', { class: 'btn small', text: 'Collaborators', onclick: e => { e.stopPropagation(); m.close(); membersModal(it.id, name); } }) : null,
       isCur && !UI.readOnly ? el('button', { class: 'icon-btn', title: 'Rename', html: IC.edit, onclick: async e => { e.stopPropagation(); m.close(); const n = await promptText('Rename project', 'Project name', P.name); if (n) { P.name = n; touch('meta'); render(); } } }) : null,
-      isOwner() ? el('button', { class: 'icon-btn', title: 'Delete', html: IC.trash, onclick: async e => {
+      canManageRole(it.role) ? el('button', { class: 'icon-btn', title: 'Delete', html: IC.trash, onclick: async e => {
         e.stopPropagation(); m.close();
         if (!(await ask(`Delete “${name}” with all its documents and coding, for everyone? This can’t be undone.`))) return;
         try {
@@ -677,31 +684,57 @@ async function projectsModal() {
   list.append(box);
 }
 async function membersModal(pid, pname) {
-  const body = el('div', {}, el('div', { class: 'hint', text: 'Loading…' }));
-  modal({ title: 'Members — ' + pname, wide: true, body });
-  let people2, members;
-  try { [people2, members] = await Promise.all([API.get('/api/admin/overview'), API.get('/api/projects/' + pid + '/members')]); }
-  catch (e) { body.innerHTML = ''; body.append(el('p', { text: 'Couldn’t load members: ' + e.message })); return; }
+  const body = el('div', {}, el('div', { class: 'hint', text: 'Loading\u2026' }));
+  modal({ title: 'Collaborators \u2014 ' + pname, wide: true, body });
+  let everyone, members;
+  try { [everyone, members] = await Promise.all([API.get('/api/people'), API.get('/api/projects/' + pid + '/members')]); }
+  catch (e) { body.innerHTML = ''; body.append(el('p', { text: 'Couldn\u2019t load collaborators: ' + e.message })); return; }
+  everyone.forEach(u => people.set(u.id, { name: u.name }));
   const roles = new Map(members.map(x => [x.userId, x.role]));
-  const users = people2.users.filter(u => u.status === 'active' && u.role !== 'owner');
+  const owner = isOwner();
+  const users = everyone.filter(u => u.role !== 'owner' && u.id !== ME.id);
   body.innerHTML = '';
-  body.append(el('p', { class: 'hint', text: 'Owners can always open every project. Choose what each member can do in this one.' }));
-  if (!users.length) { body.append(el('p', { text: 'No approved members yet. When people sign up, approve them in Admin first.' })); return; }
-  const tbl = el('table', { class: 'mx' }, el('thead', {}, el('tr', {}, el('th', { class: 'n', text: 'Member' }), el('th', { text: 'Access to this project' }))));
-  const tb = el('tbody');
-  users.forEach(u => {
-    const sel = el('select', { style: { width: 'auto' } }, [['', 'No access'], ['viewer', 'View only'], ['editor', 'Can code']].map(([v, l]) => el('option', { value: v, text: l, selected: (roles.get(u.id) || '') === v })));
-    sel.addEventListener('change', async () => {
-      try { await API.put('/api/projects/' + pid + '/members', { userId: u.id, role: sel.value || null }); toast('Access updated for ' + u.name); }
-      catch (e) { toast('Couldn’t update: ' + e.message, 'err'); }
+  body.append(el('p', { class: 'hint', text: (owner ? 'Site owners can always open every project. ' : '') + 'Choose who can view or code in this project. People must have an approved account first.' }));
+  if (!users.length) { body.append(el('p', { text: 'No one else has an approved account yet. Share the sign-up page (' + location.origin + '/login) and ask the site owner to approve them.' })); return; }
+  const search = el('input', { type: 'search', placeholder: 'Find a person\u2026', dir: 'auto', class: 'no-thaana-x' });
+  const onlyIn = el('input', { type: 'checkbox' });
+  const tbl = el('table', { class: 'mx' }, el('thead', {}, el('tr', {}, el('th', { class: 'n', text: 'Person' }), el('th', { text: 'Access to this project' }))));
+  const tb = el('tbody'); tbl.append(tb);
+  const opts = (u) => {
+    const list = [['', 'No access'], ['viewer', 'View only'], ['editor', 'Can code']];
+    if (owner && (u.role === 'user' || roles.get(u.id) === 'manager')) list.push(['manager', 'Manager (can invite)']);
+    return list;
+  };
+  const draw = () => {
+    tb.innerHTML = '';
+    const qv = search.value.trim().toLowerCase();
+    users.filter(u => (!qv || u.name.toLowerCase().includes(qv)) && (!onlyIn.checked || roles.get(u.id))).forEach(u => {
+      const cur = roles.get(u.id) || '';
+      let ctl;
+      if (cur === 'manager' && !owner) ctl = el('span', { class: 'hint', text: 'Manager' });
+      else {
+        ctl = el('select', { style: { width: 'auto' } }, opts(u).map(([v, l]) => el('option', { value: v, text: l, selected: cur === v })));
+        ctl.addEventListener('change', async () => {
+          try { await API.put('/api/projects/' + pid + '/members', { userId: u.id, role: ctl.value || null }); if (ctl.value) roles.set(u.id, ctl.value); else roles.delete(u.id); toast('Access updated for ' + u.name); }
+          catch (e) { toast('Couldn\u2019t update: ' + e.message, 'err'); ctl.value = roles.get(u.id) || ''; }
+        });
+      }
+      tb.append(el('tr', {}, el('td', { class: 'n' }, el('span', { dir: 'auto', text: u.name }), el('span', { class: 'hint', text: '  ' + accountLabel(u.role) })), el('td', {}, ctl)));
     });
-    tb.append(el('tr', {}, el('td', { class: 'n', dir: 'auto', text: u.name }), el('td', {}, sel)));
-  });
-  tbl.append(tb);
-  body.append(el('div', { class: 'tbl-wrap' }, tbl));
+    if (!tb.children.length) tb.append(el('tr', {}, el('td', { class: 'n hint', colspan: 2, text: 'No one matches.' })));
+  };
+  search.addEventListener('input', draw); onlyIn.addEventListener('change', draw);
+  body.append(el('div', { class: 'row', style: { marginBottom: '8px' } }, el('div', { style: { flex: 1, minWidth: '180px' } }, search), el('label', { class: 'chk' }, onlyIn, 'Only people with access')));
+  body.append(el('div', { class: 'tbl-wrap', style: { maxHeight: '50vh' } }, tbl));
+  const bulk = async (role) => {
+    for (const u of users) { if (roles.get(u.id) === 'manager') continue; try { await API.put('/api/projects/' + pid + '/members', { userId: u.id, role }); if (role) roles.set(u.id, role); else roles.delete(u.id); } catch (e) { } }
+    draw(); toast(role === 'editor' ? 'Everyone can now code' : role === 'viewer' ? 'Everyone can now view' : 'Access removed');
+  };
   body.append(el('div', { class: 'row', style: { margin: '12px 0 4px' } },
-    el('button', { class: 'btn small', text: 'Give everyone “Can code”', onclick: async () => { for (const u of users) await API.put('/api/projects/' + pid + '/members', { userId: u.id, role: 'editor' }).catch(() => { }); toast('Everyone can now code'); $$('select', tbl).forEach(s => s.value = 'editor'); } }),
-    el('button', { class: 'btn small', text: 'Give everyone “View only”', onclick: async () => { for (const u of users) await API.put('/api/projects/' + pid + '/members', { userId: u.id, role: 'viewer' }).catch(() => { }); toast('Everyone can now view'); $$('select', tbl).forEach(s => s.value = 'viewer'); } })));
+    el('button', { class: 'btn small', text: 'Give everyone \u201cCan code\u201d', onclick: () => bulk('editor') }),
+    el('button', { class: 'btn small', text: 'Give everyone \u201cView only\u201d', onclick: () => bulk('viewer') }),
+    el('button', { class: 'btn small ghost', text: 'Remove everyone', onclick: async () => { if (await ask('Remove every collaborator from this project?', 'Remove all')) bulk(null); } })));
+  draw();
 }
 async function exportProject() {
   if (!P) return;
@@ -730,7 +763,7 @@ function renderUserMenu() {
   btn.addEventListener('click', e => {
     e.stopPropagation(); const old = $('.menu', host); if (old) { old.remove(); return; }
     const menu = el('div', { class: 'menu' },
-      el('div', { class: 'menu-head' }, el('b', { text: ME.name, dir: 'auto' }), el('small', { text: (isOwner() ? 'Owner' : 'Member') + (ME.email ? ' · ' + ME.email : '') })),
+      el('div', { class: 'menu-head' }, el('b', { text: ME.name, dir: 'auto' }), el('small', { text: accountLabel(ME.role) + (ME.email ? ' · ' + ME.email : '') })),
       isOwner() ? el('button', { onclick: () => { menu.remove(); closePop(); UI.tab = 'admin'; render(); updatePresence(); } }, 'Admin', el('small', { text: 'Approve sign-ups, manage access' })) : null,
       ME.google ? null : el('button', { onclick: () => { location.href = '/api/auth/google?link=1'; } }, 'Connect Google account', el('small', { text: 'Then sign in with Gmail instead of a password' })),
       el('button', { onclick: () => { menu.remove(); passwordModal(); } }, ME.hasPassword ? 'Change password' : 'Set a password', ME.hasPassword ? null : el('small', { text: 'Optional — you sign in with Google' })),
@@ -794,6 +827,7 @@ async function renderAdminData() {
   refreshAdminBadge();
   const top = host.scrollTop; host.innerHTML = '';
   const { users, projects, members, settings } = adminData;
+  users.forEach(u => people.set(u.id, { name: u.name }));
   const act = async (fn, okMsg) => { try { await fn(); if (okMsg) toast(okMsg); } catch (e) { toast(e.message, 'err'); } renderAdminData(); };
   const wrap = el('div', { class: 'admin' });
   // sign-ups
@@ -805,21 +839,22 @@ async function renderAdminData() {
     el('p', { class: 'hint', text: 'Share this address so people can sign up: ' + location.origin + '/login' }),
     pending.length ? el('div', { class: 'proj-list' }, pending.map(u => el('div', { class: 'proj-item', style: { cursor: 'default' } },
       avatar(u.id, 28), el('div', { class: 'grow' }, el('div', { text: u.name, dir: 'auto', style: { fontWeight: 500 } }), el('div', { class: 'meta', text: (u.email ? u.email + ' · ' : '') + (u.google ? 'Google · ' : '') + 'signed up ' + new Date(u.created).toLocaleString() })),
-      el('button', { class: 'btn small primary', text: 'Approve', onclick: () => act(() => API.patch('/api/admin/users/' + u.id, { status: 'active' }), u.name + ' approved') }),
+      el('button', { class: 'btn small primary', text: 'Approve as Member', title: 'Can only open projects they are added to', onclick: () => act(() => API.patch('/api/admin/users/' + u.id, { status: 'active', role: 'member' }), u.name + ' approved as a Member') }),
+      el('button', { class: 'btn small', text: 'Approve as User', title: 'Can also create their own projects and invite collaborators', onclick: () => act(() => API.patch('/api/admin/users/' + u.id, { status: 'active', role: 'user' }), u.name + ' approved as a User') }),
       el('button', { class: 'btn small danger', text: 'Reject', onclick: async () => { if (await ask(`Reject and delete the sign-up from “${u.name}”?`, 'Reject')) act(() => API.del('/api/admin/users/' + u.id), 'Sign-up rejected'); } }))))
       : el('p', { class: 'hint', text: 'No one is waiting.' })));
   // access matrix
   const active = users.filter(u => u.status === 'active' && u.role !== 'owner');
   const role = new Map(members.map(x => [x.projectId + '|' + x.userId, x.role]));
   const sec = el('section', { class: 'card admin-sec' }, el('h3', { text: 'Project access' }),
-    el('p', { class: 'hint', text: 'Choose what each approved member can do in each project. Owners can open everything.' }));
+    el('p', { class: 'hint', text: 'Choose what each approved person can do in each project. “Manage” (for Users) means they can also invite collaborators. Owners can open everything.' }));
   if (!projects.length || !active.length) sec.append(el('p', { class: 'hint', text: !projects.length ? 'Create a project first.' : 'Approve some members first.' }));
   else {
     const tbl = el('table', { class: 'mx' });
     tbl.append(el('thead', {}, el('tr', {}, el('th', { class: 'n', text: 'Member' }), projects.map(p => el('th', { title: p.name, text: trunc(p.name, 24), dir: 'auto' })))));
     const tb = el('tbody');
     active.forEach(u => tb.append(el('tr', {}, el('td', { class: 'n', dir: 'auto', text: u.name }), projects.map(p => {
-      const s = el('select', { class: 'acc' }, [['', '—'], ['viewer', 'View'], ['editor', 'Code']].map(([v, l]) => el('option', { value: v, text: l, selected: (role.get(p.id + '|' + u.id) || '') === v })));
+      const s = el('select', { class: 'acc' }, [['', '—'], ['viewer', 'View'], ['editor', 'Code']].concat(u.role === 'user' || role.get(p.id + '|' + u.id) === 'manager' ? [['manager', 'Manage']] : []).map(([v, l]) => el('option', { value: v, text: l, selected: (role.get(p.id + '|' + u.id) || '') === v })));
       s.dataset.v = s.value;
       s.addEventListener('change', async () => { try { await API.put('/api/projects/' + p.id + '/members', { userId: u.id, role: s.value || null }); s.dataset.v = s.value; renderAdminData(); } catch (e) { toast(e.message, 'err'); s.value = s.dataset.v; } });
       return el('td', {}, s);
@@ -827,8 +862,8 @@ async function renderAdminData() {
     tbl.append(tb);
     // whole-column shortcuts
     tbl.append(el('tfoot', {}, el('tr', {}, el('td', { class: 'n', text: 'Everyone' }), projects.map(p => el('td', {},
-      el('button', { class: 'link', text: 'Code', title: 'Give every member “Code” access', onclick: () => act(async () => { for (const u of active) await API.put('/api/projects/' + p.id + '/members', { userId: u.id, role: 'editor' }); }, 'Everyone can code in ' + p.name) }), ' · ',
-      el('button', { class: 'link', text: 'None', title: 'Remove every member', onclick: () => act(async () => { for (const u of active) await API.put('/api/projects/' + p.id + '/members', { userId: u.id, role: null }); }, 'Access removed') }))))));
+      el('button', { class: 'link', text: 'Code', title: 'Give every member “Code” access', onclick: () => act(async () => { for (const u of active) { if (role.get(p.id + '|' + u.id) === 'manager') continue; await API.put('/api/projects/' + p.id + '/members', { userId: u.id, role: 'editor' }); } }, 'Everyone can code in ' + p.name) }), ' · ',
+      el('button', { class: 'link', text: 'None', title: 'Remove every member', onclick: () => act(async () => { for (const u of active) { if (role.get(p.id + '|' + u.id) === 'manager') continue; await API.put('/api/projects/' + p.id + '/members', { userId: u.id, role: null }); } }, 'Access removed') }))))));
     sec.append(el('div', { class: 'tbl-wrap' }, tbl));
   }
   wrap.append(sec);
@@ -839,11 +874,19 @@ async function renderAdminData() {
     const self = u.id === ME.id;
     const nProj = members.filter(x => x.userId === u.id).length;
     ptb.append(el('tr', {}, el('td', { class: 'n' }, el('div', { dir: 'auto', text: u.name + (self ? ' (you)' : '') }), u.email ? el('div', { class: 'hint', text: u.email + (u.google ? ' · Google' : '') }) : null),
-      el('td', { text: u.role === 'owner' ? 'Owner' : 'Member' }),
+      el('td', {}, self ? el('span', { text: accountLabel(u.role) }) : (() => {
+        const sel = el('select', { class: 'acc', title: 'Owner: everything · User: can create projects and invite collaborators · Member: only projects they are added to' }, [['member', 'Member'], ['user', 'User'], ['owner', 'Owner']].map(([v, l]) => el('option', { value: v, text: l, selected: u.role === v })));
+        sel.addEventListener('change', async () => {
+          const v = sel.value;
+          if (v === 'owner' && !(await ask(`Make “${u.name}” an owner? Owners can see every project and manage all accounts.`, 'Make owner', false))) { sel.value = u.role; return; }
+          if (u.role === 'owner' && !(await ask(`Remove owner rights from “${u.name}”?`, 'Confirm'))) { sel.value = u.role; return; }
+          act(() => API.patch('/api/admin/users/' + u.id, { role: v }), u.name + ' is now ' + (v === 'user' ? 'a User' : v === 'owner' ? 'an Owner' : 'a Member'));
+        });
+        return sel;
+      })()),
       el('td', { text: u.status === 'active' ? 'Active' : 'Disabled' }),
       el('td', { class: 'c', text: u.role === 'owner' ? 'All' : nProj }),
       el('td', {}, self ? null : el('div', { class: 'row', style: { justifyContent: 'flex-end' } },
-        el('button', { class: 'btn small', text: u.role === 'owner' ? 'Make member' : 'Make owner', onclick: async () => { if (await ask(u.role === 'owner' ? `Remove owner rights from “${u.name}”?` : `Make “${u.name}” an owner? Owners can see every project and manage all accounts.`, 'Confirm', u.role === 'owner')) act(() => API.patch('/api/admin/users/' + u.id, { role: u.role === 'owner' ? 'member' : 'owner' })); } }),
         el('button', { class: 'btn small', text: 'Reset password', onclick: async () => { const pw = await promptText('Reset password for ' + u.name, 'New password (at least 8 characters) — tell it to them', '', 'Set password'); if (pw) act(() => API.post('/api/admin/users/' + u.id + '/password', { password: pw }), 'Password changed — they need to log in again'); } }),
         el('button', { class: 'btn small', text: u.status === 'active' ? 'Disable' : 'Enable', onclick: () => act(() => API.patch('/api/admin/users/' + u.id, { status: u.status === 'active' ? 'disabled' : 'active' })) }),
         el('button', { class: 'btn small danger', html: IC.trash, title: 'Delete account', onclick: async () => { if (await ask(`Delete the account “${u.name}”? Their coding stays in the projects.`)) act(() => API.del('/api/admin/users/' + u.id), 'Account deleted'); } })))));

@@ -84,11 +84,24 @@ On any Linux server (DigitalOcean, Hetzner, your institution's server…):
 
 Caddy sets up HTTPS automatically. Data is kept in `./data`. To use a Postgres database instead, set `DATABASE_URL`.
 
+## Account types
+
+| Type | Can do |
+|---|---|
+| **Owner** | Everything. Sees every project, approves sign-ups, sets account types, manages anyone's access, and sets the site's Dhivehi font. The first account is the owner. |
+| **User** | Creates their **own projects** (upload transcripts, code, themes, map, exports). Invites **collaborators** to their projects (*View only* or *Can code*) with the **Collaborators** button. Can also be added to other people's projects. |
+| **Member** | Opens only the projects they've been added to, with the access they were given (view or code). |
+
+- **Choosing the type:** when you approve a sign-up, pick **Approve as Member** or **Approve as User**. You can change it any time in **Admin → People → Role**.
+- **Users can't see other projects:** a User only sees projects they created or were invited to. Owners still see everything.
+- **Changing a User to a Member:** they keep managing the projects they already created, but can't start new ones.
+- **Managers:** in a project, its creator is the *manager*. The owner can also make another User a manager of a project, so they can invite people too.
+
 ## Daily use
 
-1. **Owner:** create a project, or add the sample project, and upload transcripts.
+1. **Owner or a User:** create a project, or add the sample project, and upload transcripts.
 2. **Members:** share the sign-up address, `https://your-site/login`. Each person signs up with a name and password.
-3. **Owner:** open **Admin**, approve the sign-ups, then use **Project access** to choose *View* or *Code* for each person in each project.
+3. **Owner:** open **Admin** and approve the sign-ups as **Members** or **Users**. Then the owner (in **Project access**) or the project's creator (with **Collaborators**) chooses *View* or *Code* for each person.
    - **Everyone → Code** gives a whole class access in one click.
 4. Everyone with *Code* access can work in the project at the same time.
    - Removing someone's access closes the project on their screen within a few seconds.
