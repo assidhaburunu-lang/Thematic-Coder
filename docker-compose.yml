@@ -1,0 +1,25 @@
+# Runs Thematic Coder plus Caddy, which gets a free HTTPS certificate automatically.
+# 1. Point your domain's DNS (an A record) at this server.
+# 2. Replace coder.example.com in the Caddyfile with your domain.
+# 3. Run:  docker compose up -d
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      - TRUST_PROXY=1
+    volumes:
+      - ./data:/data
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - app
+volumes:
+  caddy_data:
